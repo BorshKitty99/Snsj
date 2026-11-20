@@ -13,8 +13,14 @@ MAX_PER_RUN = 10          # максимум сообщений за один з
 
 TOKEN = os.environ["TG_TOKEN"]
 CHAT = os.environ["TG_CHAT"]
-PROXY = os.environ.get("PROXY")  # необязательно, формат http://user:pass@host:port
-PROXIES = {"http": PROXY, "https": PROXY} if PROXY else None
+import random
+PROXY_LIST = []
+for line in os.environ.get("PROXY", "").splitlines():
+    line = line.strip()
+    if line:
+        PROXY_LIST.append(line if "://" in line else "http://" + line)
+random.shuffle(PROXY_LIST)
+GOOD = []  # рабочие прокси из этого запуска
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -34,12 +40,8 @@ def load():
         return {"seen": [], "blocked": False}
 
 
-def fetch(query):
-    url = f"https://www.avito.ru/{CITY}?q={quote(query)}&pmax={MAX_PRICE}&s=104"
-    r = requests.get(url, headers=HEADERS, proxies=PROXIES, timeout=30)
-    if r.status_code != 200:
-        return None, r.status_code
-    soup = BeautifulSoup(r.text, "html.parser")
+def parse(html):
+    soup = BeautifulSoup(html, "html.parser")
     items = []
     for it in soup.select('[data-marker="item"]'):
         a = it.select_one('[data-marker="item-title"]') or it.select_one("a[href]")
@@ -57,9 +59,30 @@ def fetch(query):
             "price": price,
             "text": it.get_text(" ", strip=True).lower(),
         })
-    if not items:
-        return None, "нет объявлений (капча?)"
-    return items, 200
+    return items
+
+
+def fetch(query):
+    url = f"https://www.avito.ru/{CITY}?q={quote(query)}&pmax={MAX_PRICE}&s=104"
+    tries = GOOD + [p for p in PROXY_LIST if p not in GOOD][:25] if PROXY_LIST else [None]
+    last = "нет ответа"
+    for px in tries:
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=12,
+                             proxies={"http": px, "https": px} if px else None)
+        except Exception:
+            last = "прокси не отвечает"
+            continue
+        if r.status_code != 200:
+            last = r.status_code
+            continue
+        items = parse(r.text)
+        if items:
+            if px and px not in GOOD:
+                GOOD.append(px)
+            return items, 200
+        last = "нет объявлений (капча?)"
+    return None, last
 
 
 def main():
