@@ -97,8 +97,11 @@ def main():
             found += items
         time.sleep(3)
 
+    manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
     if errors and len(errors) == len(QUERIES):
-        if not st["blocked"]:
+        if manual:
+            tg(f"ℹ️ Проверка: Авито не открылся. Прокси в списке: {len(PROXY_LIST)}. Ошибки: " + "; ".join(errors))
+        elif not st["blocked"]:
             tg("⚠️ Авито блокирует бота: " + "; ".join(errors))
         st["blocked"] = True
         json.dump(st, open("seen.json", "w"))
@@ -123,6 +126,10 @@ def main():
         seen.add(it["id"])
         sent += 1
 
+    if manual:
+        tg(f"ℹ️ Проверка: Авито открылся ✅. Просмотрено объявлений: {len(found)}, "
+           f"отправлено новых: {sent}. Рабочих прокси: {len(GOOD)} из {len(PROXY_LIST)}."
+           + (f" Ошибки: {'; '.join(errors)}" if errors else ""))
     st["seen"] = list(seen)[-3000:]
     json.dump(st, open("seen.json", "w"))
 
